@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 虚拟环境
+venv/
+env/
+
+# 数据文件
+*.csv
+*.xlsx
+*.xls
+*.db
+*.sqlite
+
+# 日志文件
+*.log
+
+# 配置文件
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE 和编辑器
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 构建和打包
+build/
+dist/
+*.egg-info/
+
+# 临时文件
+*.tmp
+*.temp
+.tmp/
+.temp/
+
+# 缓存
+.cache/
+.parcel-cache/
+
+# 其他
+*.bak
+*.orig
+*.rej

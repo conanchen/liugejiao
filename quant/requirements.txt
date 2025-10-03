@@ -1,0 +1,5 @@
+baostock
+pandas
+numpy
+matplotlib
+scipy
