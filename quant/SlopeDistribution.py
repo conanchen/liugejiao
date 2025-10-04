@@ -1,5 +1,5 @@
 # @brief: 计算股票的斜率分布，参见文件[AllTrendsStrategy.md] 中的详细说明
-# 采用baostock api 获取股票最近20年真实数据，计算斜率，支持指定股票代码，
+# 采用微软qlib库的股票近10年数据，数据目录为d:/data/qlib_bin，计算斜率，支持指定股票代码，
 # 根据核心思想：周线定方向，日线找买点
 # - 周线定方向：确保我们只在“大势”向上的情况下操作，提高胜率，避免逆势交易。
 # - 日线找买点：在确定的多头方向上，利用日线级别的回调寻找风险收益比更佳的入场点。
@@ -12,8 +12,12 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
-import baostock as bs
 import os
+# 使用qlib库替代baostock
+import qlib
+from qlib.data import D
+# 导入我们的qlib数据获取器
+from qlib_data_fetcher import QlibDataFetcher
 
 # 设置matplotlib支持中文显示
 plt.rcParams["font.family"] = ["Microsoft YaHei", "SimHei", "sans-serif"]
@@ -36,47 +40,36 @@ def save_to_markdown(stock_code="sz.000002"):
 
 def get_kline_data(start_date, end_date, stock_code="sz.000002"):
     """
-    从baostock获取股票的日线和周线数据
+    从qlib获取股票的日线和周线数据
     """
-    print("登录baostock...")
-    lg = bs.login()
-    if lg.error_code != '0':
-        print(f"登录失败: {lg.error_msg}")
+    print(f"使用qlib获取{stock_code}的数据...")
+    
+    # 创建qlib数据获取器
+    fetcher = QlibDataFetcher()
+    
+    # 初始化qlib
+    if not fetcher.initialize():
+        print("初始化qlib失败")
         return None, None
-    print("登录成功!")
     
     # 获取日线数据
     print("获取日线数据...")
-    rs_daily = bs.query_history_k_data_plus(
-        stock_code,
-        "date,code,open,high,low,close,volume",
-        start_date=start_date,
-        end_date=end_date,
-        frequency="d",
-        adjustflag="2"  # 前复权
-    )
-    daily_df = rs_daily.get_data()
-    daily_df['date'] = pd.to_datetime(daily_df['date'])
-    for col in ['open', 'high', 'low', 'close', 'volume']:
-        daily_df[col] = pd.to_numeric(daily_df[col])
+    daily_df = fetcher.get_daily_data(stock_code, start_date, end_date)
+    
+    if daily_df is None or daily_df.empty:
+        print(f"获取{stock_code}的日线数据失败")
+        return None, None
     
     # 获取周线数据
     print("获取周线数据...")
-    rs_weekly = bs.query_history_k_data_plus(
-        stock_code,
-        "date,code,open,high,low,close,volume",
-        start_date=start_date,
-        end_date=end_date,
-        frequency="w",
-        adjustflag="2"  # 前复权
-    )
-    weekly_df = rs_weekly.get_data()
-    weekly_df['date'] = pd.to_datetime(weekly_df['date'])
-    for col in ['open', 'high', 'low', 'close', 'volume']:
-        weekly_df[col] = pd.to_numeric(weekly_df[col])
+    weekly_df = fetcher.get_weekly_data(stock_code, start_date, end_date)
     
-    bs.logout()
-    print("登出成功!")
+    if weekly_df is None or weekly_df.empty:
+        print(f"获取{stock_code}的周线数据失败")
+        return None, None
+    
+    print("数据获取成功!")
+    fetcher.close()
     return daily_df, weekly_df
 
 def calculate_slope(df, window=10, period=60):

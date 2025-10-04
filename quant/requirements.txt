@@ -1,5 +1,5 @@
-baostock
 pandas
 numpy
 matplotlib
 scipy
+qlib

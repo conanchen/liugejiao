@@ -1,4 +1,3 @@
-import baostock as bs
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -6,6 +5,8 @@ from datetime import datetime, timedelta
 import os
 import logging
 from config import STOCK_CODES, INDEX_CODES, DATA_CONFIG, LOGGING_CONFIG
+# 使用qlib库替代baostock
+from qlib_data_fetcher import QlibDataFetcher
 
 # 设置中文显示
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
@@ -261,12 +262,17 @@ def fetch_all_indices(fetcher):
 
 
 if __name__ == "__main__":
-    # 创建数据获取器实例
-    fetcher = BaostockDataFetcher()
+    # 创建数据获取器实例 - 使用qlib替代baostock
+    fetcher = QlibDataFetcher()
     
     try:
         logger.info("程序开始运行")
         
+        # 初始化qlib
+        if not fetcher.initialize():
+            logger.error("初始化qlib失败，程序退出")
+            exit(1)
+            
         # 示例1: 获取所有指数数据
         fetch_all_indices(fetcher)
         
@@ -280,6 +286,6 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"发生错误: {str(e)}", exc_info=True)
     finally:
-        # 确保登出
-        fetcher.logout()
+        # 清理资源
+        fetcher.close()
         logger.info("程序运行结束")
