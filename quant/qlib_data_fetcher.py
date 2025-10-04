@@ -34,10 +34,10 @@ class QlibDataFetcher:
     
     def get_daily_data(self, code, start_date, end_date):
         """
-        获取股票日线数据
+        获取通用日线数据，适用于股票、指数、ETF等各类金融产品
         
         参数:
-        code: 股票代码，例如 'SH600000'
+        code: 代码，例如 'SH600000'、'SH000001' 或'SH510300'
         start_date: 开始日期，格式为 'YYYY-MM-DD'
         end_date: 结束日期，格式为 'YYYY-MM-DD'
         
@@ -52,26 +52,34 @@ class QlibDataFetcher:
         try:
             qlib_code = code
             
-            # 获取基础数据和复权因子
-            fields = ['$open', '$high', '$low', '$close', '$volume', '$amount', '$factor']
-            df = D.features([qlib_code], fields, start_date, end_date)
+            # 使用通用字段集合，适合各类金融产品
+            fields = ['$open', '$high', '$low', '$close', '$volume', '$amount']
+            
+            # 尝试获取数据
+            try:
+                df = D.features([qlib_code], fields, start_date, end_date)
+            except Exception as e:
+                logger.error(f"获取 {code} 的日线数据失败: {str(e)}")
+                return None
             
             if df.empty:
-                logger.warning(f"未获取到 {code} 的数据")
+                logger.warning(f"未获取到 {code} 的日线数据")
                 return pd.DataFrame()
             
             # 重置索引并处理数据格式
             df = df.reset_index()
-            df = df.rename(columns={
+            
+            # 重命名列
+            rename_dict = {
                 'datetime': 'date',
                 '$open': 'open',
                 '$high': 'high',
                 '$low': 'low',
                 '$close': 'close',
                 '$volume': 'volume',
-                '$amount': 'amount',
-                '$factor': 'factor'
-            })
+                '$amount': 'amount'
+            }
+            df = df.rename(columns=rename_dict)
             
             # 保持原始代码格式
             df['code'] = code
@@ -82,20 +90,11 @@ class QlibDataFetcher:
             # 处理数值列
             numeric_columns = ['open', 'high', 'low', 'close', 'volume', 'amount', 'pctChg']
             for col in numeric_columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
             
             # 确保date列是datetime类型
             df['date'] = pd.to_datetime(df['date'])
-            
-            # qlib数据已经是后复权的，无需额外处理复权
-            
-            # 添加一些常用的财务指标列（如果需要）
-            df['peTTM'] = np.nan  # 可以根据需要计算或从其他数据源获取
-            df['pbMRQ'] = np.nan
-            df['psTTM'] = np.nan
-            df['pcfNcfTTM'] = np.nan
-            df['turn'] = np.nan
-            df['tradestatus'] = 1  # 假设交易状态为正常
             
             logger.info(f"成功获取 {code} 的日线数据，共 {len(df)} 条记录")
             return df
@@ -104,64 +103,7 @@ class QlibDataFetcher:
             logger.error(f"获取 {code} 的日线数据失败: {str(e)}")
             return None
     
-    def get_index_daily_data(self, code, start_date, end_date):
-        """
-        获取指数日线数据
-        
-        参数:
-        code: 指数代码，例如 'SH000001'
-        start_date: 开始日期，格式为 'YYYY-MM-DD'
-        end_date: 结束日期，格式为 'YYYY-MM-DD'
-        
-        返回:
-        DataFrame: 包含指数日线数据的 DataFrame
-        """
-        if not self.initialize():
-            return None
-        
-        try:
-            qlib_code = code
-            
-            # 获取指数数据
-            fields = ['$open', '$high', '$low', '$close', '$volume', '$amount']
-            df = D.features([qlib_code], fields, start_date, end_date)
-            
-            if df.empty:
-                logger.warning(f"未获取到 {code} 的指数数据")
-                return pd.DataFrame()
-            
-            # 重置索引并处理数据格式
-            df = df.reset_index()
-            df = df.rename(columns={
-                'datetime': 'date',
-                '$open': 'open',
-                '$high': 'high',
-                '$low': 'low',
-                '$close': 'close',
-                '$volume': 'volume',
-                '$amount': 'amount'
-            })
-            
-            # 保持原始代码格式
-            df['code'] = code
-            
-            # 计算涨跌幅
-            df['pctChg'] = df['close'].pct_change() * 100
-            
-            # 处理数值列
-            numeric_columns = ['open', 'high', 'low', 'close', 'volume', 'amount', 'pctChg']
-            for col in numeric_columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-            # 确保date列是datetime类型
-            df['date'] = pd.to_datetime(df['date'])
-            
-            logger.info(f"成功获取 {code} 的指数数据，共 {len(df)} 条记录")
-            return df
-            
-        except Exception as e:
-            logger.error(f"获取 {code} 的指数数据失败: {str(e)}")
-            return None
+
     
     def get_weekly_data(self, code, start_date, end_date):
         """
@@ -279,7 +221,7 @@ def fetch_index_data(fetcher, index_code, index_name):
     logger.info(f"获取 {index_name} ({index_code}) 数据...")
     start_date, end_date = get_date_range()
     
-    df = fetcher.get_index_daily_data(index_code, start_date, end_date)
+    df = fetcher.get_daily_data(index_code, start_date, end_date)
     if not df.empty:
         # 绘制价格走势图
         fetcher.plot_price(df, title=f"{index_name} ({index_code}) 价格走势")
