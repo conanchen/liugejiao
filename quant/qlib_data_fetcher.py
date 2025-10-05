@@ -20,6 +20,17 @@ class QlibDataFetcher:
         self.initialized = False
         self.provider_uri = "d:/data/qlib_bin"
         
+        # 技术指标配置
+        self.calculate_indicators = True  # 默认计算技术指标
+        self.ma_periods = DATA_CONFIG.get('ma_periods', [5, 10, 20, 60])  # 均线周期
+        self.rsi_period = 14  # RSI周期
+        self.macd_fast = 12  # MACD快线周期
+        self.macd_slow = 26  # MACD慢线周期
+        self.macd_signal = 9  # MACD信号线周期
+        self.bollinger_period = 20  # 布林带周期
+        self.bollinger_std = 2  # 布林带标准差倍数
+        self.volatility_period = 20  # 波动率计算周期
+        
     def initialize(self):
         """初始化 qlib 数据"""
         if not self.initialized:
@@ -32,7 +43,7 @@ class QlibDataFetcher:
                 return False
         return True
     
-    def get_daily_data(self, code, start_date, end_date):
+    def get_daily_data(self, code, start_date, end_date, calculate_indicators=None):
         """
         获取通用日线数据，适用于股票、指数、ETF等各类金融产品
         
@@ -40,9 +51,10 @@ class QlibDataFetcher:
         code: 代码，例如 'SH600000'、'SH000001' 或'SH510300'
         start_date: 开始日期，格式为 'YYYY-MM-DD'
         end_date: 结束日期，格式为 'YYYY-MM-DD'
+        calculate_indicators: 是否计算技术指标，默认为None(使用实例设置)
         
         返回:
-        DataFrame: 包含日线数据的 DataFrame
+        DataFrame: 包含日线数据和技术指标的 DataFrame
         
         备注：qlib 数据已经是后复权的，无需额外处理复权
         """
@@ -96,6 +108,10 @@ class QlibDataFetcher:
             # 确保date列是datetime类型
             df['date'] = pd.to_datetime(df['date'])
             
+            # 根据参数决定是否计算技术指标
+            if calculate_indicators or (calculate_indicators is None and self.calculate_indicators):
+                df = self.calculate_technical_indicators(df)
+            
             logger.info(f"成功获取 {code} 的日线数据，共 {len(df)} 条记录")
             return df
             
@@ -103,9 +119,51 @@ class QlibDataFetcher:
             logger.error(f"获取 {code} 的日线数据失败: {str(e)}")
             return None
     
-
+    def calculate_technical_indicators(self, df):
+        """计算各种技术指标"""
+        try:
+            # 计算移动平均线
+            for period in self.ma_periods:
+                df[f'ma{period}'] = df['close'].rolling(window=period).mean()
+            
+            # 计算RSI指标
+            delta = df['close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=self.rsi_period).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=self.rsi_period).mean()
+            rs = gain / loss
+            df['rsi'] = 100 - (100 / (1 + rs))
+            
+            # 计算MACD指标
+            df['ema_fast'] = df['close'].ewm(span=self.macd_fast, adjust=False).mean()
+            df['ema_slow'] = df['close'].ewm(span=self.macd_slow, adjust=False).mean()
+            df['macd'] = df['ema_fast'] - df['ema_slow']
+            df['macd_signal'] = df['macd'].ewm(span=self.macd_signal, adjust=False).mean()
+            df['macd_hist'] = df['macd'] - df['macd_signal']
+            
+            # 计算布林带
+            df['bollinger_mid'] = df['close'].rolling(window=self.bollinger_period).mean()
+            df['bollinger_std'] = df['close'].rolling(window=self.bollinger_period).std()
+            df['bollinger_upper'] = df['bollinger_mid'] + (df['bollinger_std'] * self.bollinger_std)
+            df['bollinger_lower'] = df['bollinger_mid'] - (df['bollinger_std'] * self.bollinger_std)
+            
+            # 计算波动率 (ATR)
+            df['high_low'] = df['high'] - df['low']
+            df['high_close'] = np.abs(df['high'] - df['close'].shift(1))
+            df['low_close'] = np.abs(df['low'] - df['close'].shift(1))
+            df['tr'] = df[['high_low', 'high_close', 'low_close']].max(axis=1)
+            df['atr'] = df['tr'].rolling(window=self.volatility_period).mean()
+            
+            # 删除临时列
+            temp_columns = ['high_low', 'high_close', 'low_close', 'tr', 'ema_fast', 'ema_slow']
+            df = df.drop(columns=[col for col in temp_columns if col in df.columns])
+            
+            logger.info(f"成功计算技术指标: 均线{self.ma_periods}, RSI{self.rsi_period}, MACD({self.macd_fast},{self.macd_slow},{self.macd_signal}), 布林带({self.bollinger_period}), ATR({self.volatility_period})")
+        except Exception as e:
+            logger.error(f"计算技术指标失败: {str(e)}")
+        
+        return df
     
-    def get_weekly_data(self, code, start_date, end_date):
+    def get_weekly_data(self, code, start_date, end_date, calculate_indicators=None):
         """
         获取股票周线数据
         
@@ -113,14 +171,15 @@ class QlibDataFetcher:
         code: 股票代码，例如 'SH600000'
         start_date: 开始日期，格式为 'YYYY-MM-DD'
         end_date: 结束日期，格式为 'YYYY-MM-DD'
+        calculate_indicators: 是否计算技术指标，默认为None(使用实例设置)
         
         返回:
-        DataFrame: 包含周线数据的 DataFrame
+        DataFrame: 包含周线数据和技术指标的 DataFrame
         
         备注：qlib 数据已经是后复权的，无需额外处理复权
         """
         # 获取日线数据，然后转换为周线
-        daily_df = self.get_daily_data(code, start_date, end_date)
+        daily_df = self.get_daily_data(code, start_date, end_date, calculate_indicators=False)  # 先不计算指标，等转换为周线后再计算
         
         if daily_df is None or daily_df.empty:
             return None
@@ -146,6 +205,10 @@ class QlibDataFetcher:
             # 计算周涨跌幅
             weekly_df['pctChg'] = weekly_df['close'].pct_change() * 100
             
+            # 根据参数决定是否计算技术指标
+            if calculate_indicators or (calculate_indicators is None and self.calculate_indicators):
+                weekly_df = self.calculate_technical_indicators(weekly_df)
+            
             logger.info(f"成功获取 {code} 的周线数据，共 {len(weekly_df)} 条记录")
             return weekly_df
             
@@ -154,15 +217,6 @@ class QlibDataFetcher:
             return None
     
 
-    
-    def calculate_ma(self, df, periods=None):
-        """计算移动平均线，与BaostockDataFetcher保持一致的接口"""
-        if not periods:
-            periods = DATA_CONFIG['ma_periods']
-            
-        for period in periods:
-            df[f'ma{period}'] = df['close'].rolling(window=period).mean()
-        return df
     
     def plot_price(self, df, title=None):
         """绘制价格走势图，与BaostockDataFetcher保持一致的接口"""
@@ -236,29 +290,28 @@ def fetch_stock_data(fetcher, stock_code, stock_name):
     logger.info(f"获取 {stock_name} ({stock_code}) 数据...")
     start_date, end_date = get_date_range()
     
+    # 获取日线数据（包含技术指标）
     df = fetcher.get_daily_data(stock_code, start_date, end_date)
     if not df.empty:
-        # 计算移动平均线
-        if DATA_CONFIG['calculate_ma']:
-            df = fetcher.calculate_ma(df)
+        # 绘制带均线的价格图
+        if DATA_CONFIG.get('plot_charts', False):
+            import matplotlib.pyplot as plt
+            plt.rcParams['font.sans-serif'] = ['SimHei']
+            plt.rcParams['axes.unicode_minus'] = False
             
-            # 绘制带均线的价格图
-            if DATA_CONFIG['plot_charts']:
-                import matplotlib.pyplot as plt
-                plt.rcParams['font.sans-serif'] = ['SimHei']
-                plt.rcParams['axes.unicode_minus'] = False
-                
-                plt.figure(figsize=DATA_CONFIG['figure_size'])
-                plt.plot(df['date'], df['close'], label='收盘价')
-                for period in DATA_CONFIG['ma_periods']:
+            plt.figure(figsize=DATA_CONFIG.get('figure_size', (12, 6)))
+            plt.plot(df['date'], df['close'], label='收盘价')
+            periods = DATA_CONFIG.get('ma_periods', [5, 10, 20, 60])
+            for period in periods:
+                if f'ma{period}' in df.columns:
                     plt.plot(df['date'], df[f'ma{period}'], label=f'ma{period}')
-                plt.title(f"{stock_name} ({stock_code}) 价格及均线走势")
-                plt.xlabel('日期')
-                plt.ylabel('价格')
-                plt.legend()
-                plt.grid(True)
-                plt.tight_layout()
-                plt.show()
+            plt.title(f"{stock_name} ({stock_code}) 价格及均线走势")
+            plt.xlabel('日期')
+            plt.ylabel('价格')
+            plt.legend()
+            plt.grid(True)
+            plt.tight_layout()
+            plt.show()
         
         # 保存数据
         filename = f"{stock_code}_stock_data.csv"
